@@ -3,15 +3,18 @@
 #include <unistd.h>
 #include <sys/wait.h>
 #include <fcntl.h>
+#include <string.h>
+#include <stdbool.h>
 
-int main(void) {
-    char* cmd_buf = NULL;
-    size_t len = 0;
-    
-    // getline() returns -1 on error
-    if (getline(&cmd_buf, &len, stdin) == -1) {
-        perror("getline");
-        free(cmd_buf);
+char *get_cmd(int argc, char **argv);
+char *escape(char* arg);
+bool  needs_escape(char c);
+
+int main(int argc, char **argv) {
+    char* cmd_buf = get_cmd(argc, argv);
+
+    if (cmd_buf == NULL) {
+        fprintf(stderr, "retval: error: failed to get command\n");
         return 1;
     }
 
@@ -20,7 +23,7 @@ int main(void) {
 
     // fork returns -1 on error
     if (pid == -1) {
-        perror("fork");
+        perror("retval: fork");
         free(cmd_buf);
         return 1;
     } else if (pid == 0) {
@@ -38,7 +41,7 @@ int main(void) {
     int status;
     // waitpid() returns -1 on error
     if (waitpid(pid, &status, 0) == -1) {
-        perror("waitpid");
+        perror("retval: waitpid");
         return 1;
     }
 
@@ -53,4 +56,81 @@ int main(void) {
     
     free(cmd_buf);
     return 0;
+}
+
+char *get_cmd(int argc, char **argv) {
+    char* buf;
+    size_t len = 0;
+    
+    if (argc > 1) {
+        int total_cmd_len = 0;
+        
+        if (argc == 2) {
+            total_cmd_len += strlen(argv[1]);
+        }
+        else {
+            for (int i = 1; argv[i] != NULL; i++) {
+                total_cmd_len += strlen(argv[i])*2+3;   // 2 bytes per char (esc) + 2 quotes + 1 space
+            }
+        }
+        
+        buf = malloc(total_cmd_len+1);
+
+        if (buf == NULL) {
+            return NULL;
+        }
+
+        if (argc == 2) {
+            strcpy(buf, argv[1]);
+        } else {
+            int pos = 0;
+            for (int i = 1; argv[i] != NULL; i++) {
+                char *esc = escape(argv[i]);
+                if (esc == NULL) { free(buf); return NULL; }
+                strcpy(buf + pos, "\"");
+                pos += 1;
+                strcpy(buf + pos, esc);
+                pos += strlen(esc);
+                strcpy(buf + pos, "\" ");
+                pos += 2;
+                free(esc);
+            }
+        }
+
+        // debugging
+        // printf("cmd = \"%s\"\n", buf);
+    } else {
+        // getline() returns -1 on error
+        if (getline(&buf, &len, stdin) == -1) {
+            fprintf(stderr, "retval: getline: error: could not get input from stdin");
+            free(buf);
+            return NULL;
+        }
+    }
+    return buf;
+}
+
+
+char *escape(char *arg) {
+    int len = strlen(arg);
+    char *out = malloc(2 * len + 1);
+    if (out == NULL) return NULL;
+
+    int j = 0;
+    for (int i = 0; i < len; i++) {
+        if (needs_escape(arg[i])) out[j++] = '\\';
+        out[j++] = arg[i];
+    }
+    out[j] = '\0';
+    return out;
+}
+
+bool needs_escape(char c) {
+    char escapables[] = {'`', '"', '\\', '$'};
+    int count = sizeof(escapables);
+
+    for (int i = 0; i < count; i++) {
+        if (c == escapables[i]) return true;
+    }
+    return false;
 }

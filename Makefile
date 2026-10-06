@@ -7,7 +7,7 @@ build: retval.c
 	$(CC) retval.c -o retval
 
 run: build
-	echo "$(CMD)" | ./retval
+	./retval $(CMD)
 
 clean:
 	rm -f ./retval
